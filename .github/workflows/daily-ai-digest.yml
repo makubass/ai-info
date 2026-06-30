@@ -1,0 +1,37 @@
+name: Daily AI News Digest
+
+on:
+  schedule:
+    - cron: '0 14 * * *'  # 毎日 23:00 JST (= 14:00 UTC)
+  workflow_dispatch:       # 手動実行も可能
+
+jobs:
+  collect-ai-news:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Collect AI news
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}  # 任意：設定すればYouTube情報も取得
+        run: python scripts/collect_ai_news.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "Daily AI digest $(TZ='Asia/Tokyo' date +'%Y%m%d')"
+          git push
