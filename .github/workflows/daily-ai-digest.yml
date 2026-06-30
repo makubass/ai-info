@@ -28,11 +28,24 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}  # 任意：設定すればYouTube情報も取得
         run: python scripts/collect_ai_news.py
 
-      - name: Commit and push
+      - name: Push markdown file via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
-          git add -A
-          git diff --staged --quiet || git commit -m "Daily AI digest $(TZ='Asia/Tokyo' date +'%Y%m%d')"
-          git push
+          DATE_STR=$(TZ='Asia/Tokyo' date +'%Y%m%d')
+          FILE="${DATE_STR}_aiinfo.md"
+          SHA=$(gh api "repos/${{ github.repository }}/contents/$FILE" \
+            --jq '.sha' 2>/dev/null || echo "")
+          CONTENT=$(base64 -w0 < "$FILE")
+          if [ -z "$SHA" ]; then
+            gh api "repos/${{ github.repository }}/contents/$FILE" \
+              --method PUT \
+              -f message="Daily AI digest ${DATE_STR}" \
+              -f content="${CONTENT}"
+          else
+            gh api "repos/${{ github.repository }}/contents/$FILE" \
+              --method PUT \
+              -f message="Daily AI digest ${DATE_STR} (updated)" \
+              -f content="${CONTENT}" \
+              -f sha="${SHA}"
+          fi
