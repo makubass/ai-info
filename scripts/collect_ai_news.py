@@ -116,12 +116,17 @@ def fetch_hackernews() -> list[dict]:
 # --- Zenn (日本語テック記事) ---
 def fetch_zenn() -> list[dict]:
     posts = []
+    today_str = now_jst.strftime('%Y-%m-%d')
     try:
-        url = 'https://zenn.dev/api/articles?order=trending&count=20'
+        url = 'https://zenn.dev/api/articles?order=trending&count=30'
         r = requests.get(url, headers=HEADERS, timeout=10)
         if r.status_code != 200:
             return posts
         for article in r.json().get('articles', []):
+            # 今日公開・更新された記事のみ
+            published = article.get('published_at', '') or ''
+            if not published.startswith(today_str):
+                continue
             title = article.get('title', '')
             if not is_ai_related(title):
                 continue
@@ -138,6 +143,40 @@ def fetch_zenn() -> list[dict]:
             })
     except Exception as e:
         print(f"[Zenn] エラー: {e}")
+    return posts
+
+
+# --- Qiita (日本語テック記事) ---
+def fetch_qiita() -> list[dict]:
+    posts = []
+    today_str = now_jst.strftime('%Y-%m-%d')
+    try:
+        url = 'https://qiita.com/api/v2/items'
+        params = {
+            'query': 'AI OR 生成AI OR LLM OR ChatGPT',
+            'per_page': 20,
+            'sort': 'created',
+        }
+        r = requests.get(url, params=params, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return posts
+        for item in r.json():
+            created = item.get('created_at', '')
+            if not created.startswith(today_str):
+                continue
+            title = item.get('title', '')
+            if not is_ai_related(title):
+                continue
+            posts.append({
+                'title': title,
+                'url': item.get('url', ''),
+                'discussion_url': item.get('url', ''),
+                'score': item.get('likes_count', 0),
+                'source': 'Qiita',
+                'summary': f"Qiita の技術記事。いいね: {item.get('likes_count', 0)} 件",
+            })
+    except Exception as e:
+        print(f"[Qiita] エラー: {e}")
     return posts
 
 
@@ -213,11 +252,19 @@ def generate_markdown(items: list[dict]) -> str:
 def main():
     print(f"AI ニュース収集開始: {now_jst.strftime('%Y-%m-%d %H:%M')} JST")
 
+    # ソースごとに取得し、各ソース最大3件に制限してから結合
+    MAX_PER_SOURCE = 3
+
+    def cap(posts: list[dict]) -> list[dict]:
+        """スコア降順で各ソース最大 MAX_PER_SOURCE 件に絞る"""
+        return sorted(posts, key=lambda x: x['score'], reverse=True)[:MAX_PER_SOURCE]
+
     all_posts: list[dict] = []
-    all_posts += fetch_reddit()
-    all_posts += fetch_hackernews()
-    all_posts += fetch_zenn()
-    all_posts += fetch_youtube()
+    all_posts += cap(fetch_reddit())
+    all_posts += cap(fetch_hackernews())
+    all_posts += cap(fetch_zenn())
+    all_posts += cap(fetch_qiita())
+    all_posts += cap(fetch_youtube())
 
     # URL重複排除
     seen: set[str] = set()
